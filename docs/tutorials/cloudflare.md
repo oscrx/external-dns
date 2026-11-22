@@ -89,6 +89,46 @@ Two caveats:
 - DANE requires DNSSEC on the zone. Enable it in Cloudflare and add the DS record at your registrar; ExternalDNS does
   not check this.
 
+## CAA records
+
+CAA records ([RFC 8659](https://datatracker.ietf.org/doc/html/rfc8659)), which limit the certificate authorities that
+may issue for a name, are supported. Add `CAA` to `--managed-record-types`, since the default managed set is `A`,
+`AAAA` and `CNAME` only:
+
+```sh
+--managed-record-types=A --managed-record-types=AAAA --managed-record-types=CNAME --managed-record-types=CAA
+```
+
+Targets use RFC 8659 presentation format, `<flags> <tag> <value>`. Quote the value:
+
+```yaml
+apiVersion: externaldns.k8s.io/v1alpha1
+kind: DNSEndpoint
+metadata:
+  name: www-caa
+spec:
+  endpoints:
+    - dnsName: www.example.com
+      recordType: CAA
+      recordTTL: 300
+      targets:
+        - 0 issue "letsencrypt.org;validationmethods=dns-01"
+        - 0 issuewild ";"
+        - 0 iodef "mailto:security@example.com"
+```
+
+An unquoted value is also accepted and taken verbatim to the end of the target, `;` included. Targets are normalised to
+a lowercase tag and a quoted value, so records written by ExternalDNS compare equal to the same records read back from
+Cloudflare.
+
+Two caveats:
+
+- Cloudflare cannot proxy CAA records, so proxying is always disabled for them regardless of `--cloudflare-proxied`.
+- CAA is usually set on the zone apex. The TXT registry can only claim an apex record if its ownership record stays
+  inside the zone: with `--txt-prefix`, put the record type in its own label (for example
+  `--txt-prefix=owned-by-%{record_type}.`), as a plain prefix such as `owned-by-` turns `example.com` into
+  `owned-by-caa-example.com`, a name outside the zone.
+
 ## Deploy ExternalDNS
 
 Connect your `kubectl` client to the cluster you want to test ExternalDNS with.

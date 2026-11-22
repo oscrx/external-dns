@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [UNRELEASED]
 
+### Changed
+
+- Allow the `CAA` record type in the bundled `DNSEndpoint` and `DNSRecord` CRDs.
+
 ## [v1.24.0] - 2026-11-09
 
 ### Added

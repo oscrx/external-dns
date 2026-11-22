@@ -139,6 +139,9 @@ func (sc *fakeSource) generateEndpointForType(recordType, dnsName string) (*endp
 		// DANE-EE / SPKI / SHA-256, so the digest is 64 hex characters.
 		ep = endpoint.NewEndpoint(fmt.Sprintf("_443._tcp.%s", dnsName), endpoint.RecordTypeTLSA,
 			"3 1 1 "+strings.Repeat("ab", 32))
+	case endpoint.RecordTypeCAA:
+		// CAA target format: "flags tag value" (RFC 8659).
+		ep = endpoint.NewEndpoint(dnsName, endpoint.RecordTypeCAA, `0 issue "letsencrypt.org"`)
 	default:
 		return nil, fmt.Errorf("unsupported record type: %s", recordType)
 	}

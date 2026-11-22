@@ -96,6 +96,15 @@ func getUpdateDNSRecordParam(zoneID string, cfc cloudFlareChange) (dns.RecordUpd
 			ZoneID: cloudflare.F(zoneID),
 			Body:   body,
 		}, nil
+	case dns.RecordResponseTypeCAA:
+		body, err := buildCAARecordParam(cfc.ResourceRecord)
+		if err != nil {
+			return dns.RecordUpdateParams{}, fmt.Errorf("failed to parse CAA record target %q for %s: %w", cfc.ResourceRecord.Content, cfc.ResourceRecord.Name, err)
+		}
+		return dns.RecordUpdateParams{
+			ZoneID: cloudflare.F(zoneID),
+			Body:   body,
+		}, nil
 	case dns.RecordResponseTypeTLSA:
 		body, err := buildTLSARecordParam(cfc.ResourceRecord)
 		if err != nil {
@@ -138,6 +147,15 @@ func getCreateDNSRecordParam(zoneID string, cfc *cloudFlareChange) (dns.RecordNe
 		body, err := buildNAPTRRecordParam(cfc.ResourceRecord)
 		if err != nil {
 			return dns.RecordNewParams{}, fmt.Errorf("failed to parse NAPTR record target %q for %s: %w", cfc.ResourceRecord.Content, cfc.ResourceRecord.Name, err)
+		}
+		return dns.RecordNewParams{
+			ZoneID: cloudflare.F(zoneID),
+			Body:   body,
+		}, nil
+	case dns.RecordResponseTypeCAA:
+		body, err := buildCAARecordParam(cfc.ResourceRecord)
+		if err != nil {
+			return dns.RecordNewParams{}, fmt.Errorf("failed to parse CAA record target %q for %s: %w", cfc.ResourceRecord.Content, cfc.ResourceRecord.Name, err)
 		}
 		return dns.RecordNewParams{
 			ZoneID: cloudflare.F(zoneID),
@@ -299,6 +317,26 @@ func buildNAPTRRecordParam(r dns.RecordResponse) (dns.NAPTRRecordParam, error) {
 	}, nil
 }
 
+// buildCAARecordParam builds CAA parameters; the API rejects CAA sent as content.
+func buildCAARecordParam(r dns.RecordResponse) (dns.CAARecordParam, error) {
+	target, err := endpoint.NewCAARecord(r.Content)
+	if err != nil {
+		return dns.CAARecordParam{}, err
+	}
+	return dns.CAARecordParam{
+		Name: cloudflare.F(r.Name),
+		TTL:  cloudflare.F(r.TTL),
+		Type: cloudflare.F(dns.CAARecordTypeCAA),
+		Data: cloudflare.F(dns.CAARecordDataParam{
+			Flags: cloudflare.F(float64(target.GetFlags())),
+			Tag:   cloudflare.F(target.GetTag()),
+			Value: cloudflare.F(target.GetValue()),
+		}),
+		Comment: cloudflare.F(r.Comment),
+		Tags:    cloudflare.F(tagsFromResponse(r.Tags)),
+	}, nil
+}
+
 func tlsaRecordDataParam(target *endpoint.TLSATarget) dns.TLSARecordDataParam {
 	return dns.TLSARecordDataParam{
 		Usage:        cloudflare.F(float64(target.GetUsage())),
@@ -338,6 +376,13 @@ func buildBatchPostParam(r dns.RecordResponse) (dns.RecordBatchParamsPostUnion, 
 		param, err := buildNAPTRRecordParam(r)
 		if err != nil {
 			log.Errorf("failed to parse NAPTR record target %q for %s: %v", r.Content, r.Name, err)
+			return nil, false
+		}
+		return param, true
+	case dns.RecordResponseTypeCAA:
+		param, err := buildCAARecordParam(r)
+		if err != nil {
+			log.Errorf("failed to parse CAA record target %q for %s: %v", r.Content, r.Name, err)
 			return nil, false
 		}
 		return param, true
@@ -455,6 +500,16 @@ func buildBatchPutParam(id string, r dns.RecordResponse) (dns.BatchPutUnionParam
 		return dns.BatchPutNAPTRRecordParam{
 			ID:               cloudflare.F(id),
 			NAPTRRecordParam: param,
+		}, true
+	case dns.RecordResponseTypeCAA:
+		param, err := buildCAARecordParam(r)
+		if err != nil {
+			log.Errorf("failed to parse CAA record target %q for %s: %v", r.Content, r.Name, err)
+			return nil, false
+		}
+		return dns.BatchPutCAARecordParam{
+			ID:             cloudflare.F(id),
+			CAARecordParam: param,
 		}, true
 	case dns.RecordResponseTypeTLSA:
 		param, err := buildTLSARecordParam(r)

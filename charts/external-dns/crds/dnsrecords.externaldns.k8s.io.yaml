@@ -106,6 +106,7 @@ spec:
                       enum:
                         - A
                         - AAAA
+                        - CAA
                         - CNAME
                         - DNAME
                         - MX

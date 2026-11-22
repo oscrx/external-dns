@@ -612,11 +612,25 @@ func TestBuildBatchPutParam(t *testing.T) {
 		assert.InDelta(t, 443, float64(p.Data.Value.Port.Value), 0)
 	})
 
-	t.Run("CAA record falls back (returns nil, false)", func(t *testing.T) {
+	t.Run("CAA record", func(t *testing.T) {
 		r := base
 		r.Type = dns.RecordResponseTypeCAA
 		r.Content = "0 issue letsencrypt.org"
 		param, ok := buildBatchPutParam("id-caa", r)
+		require.True(t, ok)
+		p, cast := param.(dns.BatchPutCAARecordParam)
+		require.True(t, cast)
+		assert.Equal(t, "id-caa", p.ID.Value)
+		assert.Equal(t, dns.CAARecordTypeCAA, p.Type.Value)
+		assert.Equal(t, "issue", p.Data.Value.Tag.Value)
+		assert.Equal(t, "letsencrypt.org", p.Data.Value.Value.Value)
+	})
+
+	t.Run("record type without typed params falls back (returns nil, false)", func(t *testing.T) {
+		r := base
+		r.Type = dns.RecordResponseTypeCERT
+		r.Content = "1 0 0 abc"
+		param, ok := buildBatchPutParam("id-cert", r)
 		assert.False(t, ok)
 		require.Nil(t, param)
 	})

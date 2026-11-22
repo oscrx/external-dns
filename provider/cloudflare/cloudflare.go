@@ -95,6 +95,7 @@ type DNSRecordIndex struct {
 type DNSRecordsMap map[DNSRecordIndex]dns.RecordResponse
 
 var recordTypeProxyNotSupported = sets.New(
+	"CAA",
 	"LOC",
 	"MX",
 	"NAPTR",
@@ -696,6 +697,18 @@ func (p *CloudFlareProvider) AdjustEndpoints(endpoints []*endpoint.Endpoint) ([]
 			e.SetProviderSpecificProperty(annotations.CloudflareTagsProperty, strings.Join(sortedTags, ","))
 		}
 
+		// Canonicalize CAA targets to the read-back form (quoted value, lowercase tag), else a bare value re-emits an update on every reconcile.
+		if e.RecordType == endpoint.RecordTypeCAA {
+			for i, target := range e.Targets {
+				caa, err := endpoint.NewCAARecord(target)
+				if err != nil {
+					log.Debugf("leaving CAA target %q unchanged: %v", target, err)
+					continue
+				}
+				e.Targets[i] = caa.String()
+			}
+		}
+
 		// Canonicalize NAPTR targets to the read-back form, else a non-canonical target re-emits an update on every reconcile.
 		if e.RecordType == endpoint.RecordTypeNAPTR {
 			for i, target := range e.Targets {
@@ -761,6 +774,15 @@ func endpointTargetFromCloudflareRecord(record dns.RecordResponse) string {
 		if data, ok := record.Data.(dns.NAPTRRecordData); ok && (data.Service != "" || data.Replacement != "") {
 			return endpoint.NewNAPTRTargetFromFields(uint16(data.Order), uint16(data.Preference), data.Flags, data.Service, data.Regex, data.Replacement).String()
 		}
+	case dns.RecordResponseTypeCAA:
+		// Rebuild from the structured data, or parse Content (`0 issue "letsencrypt.org"`), so the target compares in canonical form.
+		if data, ok := record.Data.(dns.CAARecordData); ok && data.Tag != "" {
+			return endpoint.NewCAATargetFromFields(uint8(data.Flags), data.Tag, data.Value).String()
+		}
+		if caa, err := endpoint.NewCAARecord(record.Content); err == nil {
+			return caa.String()
+		}
+		log.Warnf("could not parse CAA content %q for %s, using it verbatim", record.Content, record.Name)
 	case dns.RecordResponseTypeTLSA:
 		// Cloudflare returns the digest uppercase; normalise so it compares equal.
 		if tlsa, err := endpoint.NewTLSARecord(record.Content); err == nil {
@@ -825,6 +847,11 @@ func (p *CloudFlareProvider) newCloudFlareChange(action changeAction, ep *endpoi
 	if ep.RecordType == endpoint.RecordTypeNAPTR {
 		if _, err := endpoint.NewNAPTRRecord(target); err != nil {
 			return &cloudFlareChange{}, fmt.Errorf("failed to parse NAPTR record target %q: %w", target, err)
+		}
+	}
+	if ep.RecordType == endpoint.RecordTypeCAA {
+		if _, err := endpoint.NewCAARecord(target); err != nil {
+			return &cloudFlareChange{}, fmt.Errorf("failed to parse CAA record target %q: %w", target, err)
 		}
 	}
 
@@ -973,7 +1000,7 @@ func (p *CloudFlareProvider) groupByNameAndTypeWithCustomHostnames(records DNSRe
 // SupportedRecordType returns true if the record type is supported by the provider
 func (p *CloudFlareProvider) SupportedAdditionalRecordTypes(recordType string) bool {
 	switch recordType {
-	case endpoint.RecordTypeMX, endpoint.RecordTypeNAPTR, endpoint.RecordTypeTLSA:
+	case endpoint.RecordTypeCAA, endpoint.RecordTypeMX, endpoint.RecordTypeNAPTR, endpoint.RecordTypeTLSA:
 		return true
 	default:
 		return provider.SupportedRecordType(recordType)
